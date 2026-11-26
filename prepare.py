@@ -22,6 +22,12 @@ AMOUNT_LITERAL = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[
 AMOUNT_FORMAT = "source-unit-binary64"
 
 
+def normalize_bank_id(bank):
+    if bank.isascii() and bank.isdigit():
+        return bank.lstrip("0") or "0"
+    return bank
+
+
 def money(value):
     if not AMOUNT_LITERAL.fullmatch(value) or not math.isfinite(float(value)):
         raise ValueError(f"Invalid finite amount: {value!r}")
@@ -41,25 +47,11 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def prepare(account_source, transfer_source, output, allow_bank_padding=False):
+def prepare(account_source, transfer_source, output):
     if output.exists():
         raise FileExistsError(output)
     accounts_by_id = {}
     labels = {"true": 0, "false": 0}
-    aliases = {}
-
-    def resolve(bank, account):
-        identity = (bank, account)
-        if identity in accounts_by_id:
-            return accounts_by_id[identity][0]
-        if allow_bank_padding and bank.isascii() and bank.isdigit():
-            alias = (bank.lstrip("0") or "0", account)
-            if alias in aliases:
-                candidate = aliases[alias]
-                if candidate is None:
-                    raise ValueError(f"Ambiguous padded bank ID for {identity!r}")
-                return candidate
-        raise KeyError(identity)
 
     count = 0
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -105,9 +97,6 @@ def prepare(account_source, transfer_source, output, allow_bank_padding=False):
                         continue
                     acc_key = len(accounts_by_id) + 1
                     accounts_by_id[identity] = (acc_key, *metadata)
-                    if allow_bank_padding and bank.isascii() and bank.isdigit():
-                        alias = (bank.lstrip("0") or "0", account)
-                        aliases[alias] = acc_key if alias not in aliases else None
                     record = (acc_key, bank, account, *metadata)
                     account_sql.writerow(record)
                     account_graph.writerow((acc_key, *record))
@@ -121,10 +110,12 @@ def prepare(account_source, transfer_source, output, allow_bank_padding=False):
                     )
                     if not all((sb, sa, db, da, rc, pc, fmt)) or label not in {"0", "1"}:
                         raise ValueError("Missing required field or invalid label.")
+                    sb = normalize_bank_id(sb)
+                    db = normalize_bank_id(db)
                     timestamp = datetime.strptime(ts, "%Y/%m/%d %H:%M").isoformat()
                     paid, received = money(paid), money(received)
-                    src_key = resolve(sb, sa)
-                    dst_key = resolve(db, da)
+                    src_key = accounts_by_id[(sb, sa)][0]
+                    dst_key = accounts_by_id[(db, da)][0]
                 except KeyError as error:
                     raise ValueError(
                         f"{transfer_source}:{source_rows.line_num}: "
@@ -140,7 +131,8 @@ def prepare(account_source, transfer_source, output, allow_bank_padding=False):
         if count == 0:
             raise ValueError("No transactions found.")
         manifest = {"accounts": len(accounts_by_id), "transfers": count, "amount_format": AMOUNT_FORMAT, "amount_scale": 1}
-        manifest.update(is_laundering=labels, allow_bank_padding=allow_bank_padding,
+        manifest.update(is_laundering=labels,
+                        transaction_bank_id_normalization="strip-leading-zeros",
                         source_sha256={"accounts": sha256(account_source), "transfers": sha256(transfer_source)})
         (stage / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         stage.rename(output)
@@ -151,7 +143,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("accounts", type=Path, nargs="?", default=Path("HI-Small_accounts_renamed.csv"))
     parser.add_argument("transfers", type=Path, nargs="?", default=Path("HI-Small_Trans_renamed.csv"))
-    parser.add_argument("--allow-bank-padding", action="store_true")
     parser.add_argument("output", type=Path, nargs="?", default=Path("prepared"))
     args = parser.parse_args()
-    prepare(args.accounts, args.transfers, args.output, args.allow_bank_padding)
+    prepare(args.accounts, args.transfers, args.output)
