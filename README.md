@@ -25,7 +25,7 @@ timeout 15s docker info
 docker compose version
 ```
 
-Chỉ tiếp tục khi Docker trả kết quả thành công và `docker version` hiện cả Client và Server. Nếu lệnh hết 15 giây mà chưa phản hồi, xem bước 6 trước khi import. Tạo virtual environment trong WSL; không dùng lại virtual environment tạo trên Windows. Docker Compose đọc `.env`, còn các chương trình Python đọc biến môi trường, nên cần bước `set -a`, `source .env`, `set +a` ở trên.
+Chỉ tiếp tục khi Docker trả kết quả thành công và `docker version` hiện cả Client và Server. Nếu lệnh hết 15 giây mà chưa phản hồi, xem bước 6 trước khi import. Tạo virtual environment trong WSL; không dùng lại virtual environment tạo trên Windows. Docker Compose và các chương trình Python đều đọc `.env` trong thư mục repo; biến đã export trong terminal được ưu tiên. Bước `set -a`, `source .env`, `set +a` còn giúp các lệnh Bash sử dụng chung các biến này. Cài lại `pip install -r requirements.txt` khi cập nhật code để có thư viện `python-dotenv`.
 
 DB_CPUS và DB_MEMORY áp dụng cho **mỗi** service. Mặc định 4 CPU và 4 GiB. PG_PORT, BOLT_PORT, HTTP_PORT có thể export nếu cổng mặc định đang dùng. Khi đổi ngân sách RAM, điều chỉnh cả heap/page cache và bộ nhớ offline importer cho phù hợp. Các lệnh runner đọc biến môi trường đã export.
 
@@ -124,11 +124,11 @@ python runner.py summarize
 
 Runner yêu cầu chỉ service đang đo chạy trong project Compose hiện tại và từ chối benchmark lần nữa cho cùng DBMS trong cùng experiment. `summarize` đọc các file kết quả, không cần database đang chạy.
 
-Các lệnh verify, benchmark và collect-plans phía trên cùng đặt timeout 900.000 ms mỗi truy vấn; mặc định runner khi không truyền tùy chọn vẫn là 120.000 ms. Giữ cùng timeout cho hai hệ khi benchmark. Q3 hiện tại có thể mất vài phút một lượt trên Neo4j, nên 5 warm-up và 30 lượt đo cho mỗi case có thể khiến toàn bộ benchmark chạy lâu. Không thay đổi case hoặc truy vấn trong experiment đã có `experiment.json`; tối ưu câu truy vấn cần một experiment mới.
+Các lệnh verify, benchmark và collect-plans phía trên cùng đặt timeout 900.000 ms mỗi truy vấn; mặc định runner khi không truyền tùy chọn vẫn là 120.000 ms. Giữ cùng timeout cho hai hệ khi benchmark. Mỗi case được chạy 5 warm-up và 30 lượt đo, nên thời gian toàn bộ thí nghiệm phụ thuộc độ khó của từng seed và cửa sổ thời gian. Không thay đổi case hoặc truy vấn trong experiment đã có `experiment.json`; tối ưu câu truy vấn cần một experiment mới.
 
 Mặc định mỗi case chạy 5 warm-up và 30 lượt đo. Để smoke test nhanh, thêm `--warmup 1 --repetitions 3` vào cả hai lệnh benchmark. Đặt `--seed 42 --timeout-ms 120000` để đổi hạt giống xáo trộn hoặc timeout phía DBMS. Mỗi repetition xáo thứ tự case. Truy vấn chạy trên kết nối đã mở, đồng hồ đơn điệu tính từ lúc gửi tới khi driver đọc hết kết quả, gồm truyền dữ liệu và đếm hàng tại client. Dùng lại kết nối giữa các lượt thành công và mở kết nối mới ngoài phép đo sau lỗi. Timeout phía server có thể được phát hiện muộn hơn thời hạn cấu hình. Các lượt đo dùng cache của phiên đã warm-up.
 
-**Case và ngữ nghĩa.** Sửa cases.json trước verify. Chọn t0, t1 theo giờ nguồn, t0 bao gồm và t1 loại trừ. Q1 lọc amount_paid > threshold theo payment_currency. Nhập ngưỡng bằng đơn vị tiền gốc, ví dụ 1000 hoặc 1000.25 cho US Dollar. CSV đầu ra giữ nguyên cách viết amount_paid và amount_received. PostgreSQL dùng double precision và Neo4j dùng double nên cả hai so sánh theo cùng độ chính xác dấu phẩy động 64 bit. Các giá trị thập phân cực gần nhau có thể được lưu thành cùng một số. Với dữ liệu đã nạp theo schema cũ, chạy lại prepare vào thư mục mới và import bằng project Compose cùng EXPERIMENT_ID mới. Q2 dùng seed là cặp chuỗi [bank_id, account_id] từ accounts.csv, runner tra khóa trong DBMS đang đo. Dùng cùng seed, cửa sổ và thay k trong các case trace. Q2 trả tập tài khoản đến được theo đường có hướng từ 1 đến k cạnh, không lặp nút. Q3 lấy ba tài khoản phân biệt, bắt đầu ở khóa nhỏ nhất, giữ chiều ngược và từng tổ hợp cạnh. Q2/Q3 cho phép timestamp theo mọi thứ tự trong cửa sổ. Nhãn is_laundering chỉ dùng đối soát.
+**Case và ngữ nghĩa.** Sửa cases.json trước verify. Chọn t0, t1 theo giờ nguồn, t0 bao gồm và t1 loại trừ. Q1 lọc amount_paid > threshold theo payment_currency. Nhập ngưỡng bằng đơn vị tiền gốc, ví dụ 1000 hoặc 1000.25 cho US Dollar. CSV đầu ra giữ nguyên cách viết amount_paid và amount_received. PostgreSQL dùng double precision và Neo4j dùng double nên cả hai so sánh theo cùng độ chính xác dấu phẩy động 64 bit. Các giá trị thập phân cực gần nhau có thể được lưu thành cùng một số. Với dữ liệu đã nạp theo schema cũ, chạy lại prepare vào thư mục mới và import bằng project Compose cùng EXPERIMENT_ID mới. Q2 dùng seed là cặp chuỗi [bank_id, account_id] từ accounts.csv, runner tra khóa trong DBMS đang đo. Dùng cùng seed, cửa sổ và thay k trong các case trace. Q2 trả tập tài khoản khác seed đến được theo ít nhất một đường có hướng không lặp nút dài từ 1 đến k cạnh; không trả từng đường đi. Q3 lấy ba tài khoản phân biệt, bắt đầu ở khóa nhỏ nhất, giữ chiều ngược và từng tổ hợp cạnh. Q2/Q3 cho phép timestamp theo mọi thứ tự trong cửa sổ. Nhãn is_laundering chỉ dùng đối soát.
 
 ## 5. Đọc kết quả
 
@@ -199,3 +199,29 @@ docker compose up -d --wait --wait-timeout 120 postgres
 ```
 
 Giữ cùng PG_PORT cho loader và runner. Cổng PostgreSQL bên trong container vẫn là 5432. Nếu chưa có `results/$EXPERIMENT_ID/import-postgres.json`, hoàn tất `bash import-postgres.sh` trước khi verify PostgreSQL. File này được loader tạo sau khi nạp và hậu kiểm thành công; không tự tạo biên nhận để bỏ qua bước import.
+
+Nếu log đã có COPY, COMMIT, toàn bộ index và VACUUM nhưng lỗi ở bước kết nối/hậu kiểm cuối, sửa `.env` và biến đã export trước. Không chạy lại import thông thường vì các bảng đã tồn tại. Với cùng EXPERIMENT_ID, COMPOSE_PROJECT_NAME và PREPARED_DIR của lần nạp đó, dùng:
+
+```bash
+python loader.py postgres --finalize-only
+```
+
+Chế độ này chỉ hoàn tất hậu kiểm và ghi biên nhận, không CREATE/COPY lại dữ liệu. Nó yêu cầu cả pha bulk và indexes đã được ghi trong `import_timings.csv`, đối chiếu số lượng với manifest, kiểm tra đủ index và các constraint đã được validate. Nếu các điều kiện không đạt, lệnh dừng và không tạo biên nhận. `--finalize-only` hiện chỉ hỗ trợ PostgreSQL.
+
+## 7. Truy vấn và index tối ưu
+
+Q1 giữ nguyên các bộ lọc và ID giao dịch đầu ra. PostgreSQL dùng index `(currency, ts, amount_paid) INCLUDE (txn_id)`. Neo4j dùng range index trên cùng ba thuộc tính; điều kiện ngưỡng tiền có thể vẫn là Filter sau index seek. Không thêm LIMIT, lấy mẫu hoặc đổi sang COUNT trong truy vấn được đo.
+
+Q2 chỉ cần tập tài khoản đích. Mọi đường đi có vòng lặp đến một tài khoản khác seed đều rút được thành đường không lặp nút dài không hơn đường ban đầu; vì vậy tập tài khoản đến được trong tối đa k bước không đổi khi bỏ việc lưu từng đường. PostgreSQL dùng `UNION` trên `(dst, depth)` để loại các trạng thái trùng, thay vì `UNION ALL` kèm mảng path. Neo4j dùng `RETURN DISTINCT` trên nút đích, loại seed và để planner dùng BFS pruning. Các cạnh vẫn được lọc thời gian trong quá trình mở rộng. Tối ưu này dựa vào việc chỉ trả tập tài khoản và không yêu cầu timestamp tăng dần; không áp dụng nguyên xi nếu sau này cần trả từng đường, số đường hoặc điều kiện phụ thuộc lịch sử đường đi.
+
+Q3 Cypher đặt điều kiện thời gian riêng cho từng cạnh, để planner lọc trước khi ghép các nhánh. Loader tạo thêm range index `TRANSFER(ts)` và index `Account(bank_id, account_id)` cho bước tra seed. PostgreSQL giữ các phép join theo cạnh, bổ sung partial covering index cho cạnh đầu có `src_key < dst_key`, index `(src_key, dst_key, ts)` cho cạnh đóng chu trình, và covering index `(src_key, ts)` cho bước mở rộng. Sau COPY và tạo index, `VACUUM (ANALYZE, PARALLEL 0)` cập nhật visibility map phục vụ index-only scan và tránh vượt shared memory mặc định của Docker. Q3 giữ nguyên mọi tổ hợp giao dịch song song và hai hướng chu trình; không dùng DISTINCT để làm mất kết quả.
+
+Đổi query hoặc index phải dùng experiment và project Compose mới, ví dụ `hi-small-opt-01` / `aml-hi-small-opt-01`, rồi import và verify lại trước khi benchmark. Có thể dùng lại các CSV đã prepare. Không tiếp tục benchmark bản tối ưu vào `runs.csv` của bản cũ. Nếu chỉ dừng benchmark giữa chừng, các dòng đã ghi vẫn được giữ nhưng chưa phải thí nghiệm đủ số lượt.
+
+Kiểm thử ngữ nghĩa bằng thư viện chuẩn:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+`tests/test_queries.py` kiểm tra biên thời gian, ngưỡng tiền, seed, khóa bigint, cạnh song song, vòng lặp, chu trình hai chiều và 30 đồ thị ngẫu nhiên với bộ tìm đường độc lập. Có thể chạy lại chính các contract này trên PostgreSQL và Neo4j bằng các biến `QUERY_TEST_POSTGRES_DSN`, `QUERY_TEST_NEO4J_URI`, `QUERY_TEST_NEO4J_PASSWORD` (và user/database tùy chọn). PostgreSQL dùng bảng TEMP; Neo4j dùng nhãn/type riêng và rollback dữ liệu sau mỗi test. Chạy kiểm thử tích hợp khi hai hệ đều sẵn sàng và không có benchmark đang đo.

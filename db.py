@@ -8,9 +8,18 @@ from pathlib import Path
 
 import psycopg
 from neo4j import GraphDatabase, Query
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
 SYSTEMS = ("postgres", "neo4j")
+
+
+def load_environment(path=None):
+    # Match Compose's precedence: exported variables override the repo .env.
+    return load_dotenv(ROOT / ".env" if path is None else path, override=False)
+
+
+load_environment()
 
 
 def identifier(value):
