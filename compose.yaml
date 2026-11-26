@@ -1,0 +1,45 @@
+name: aml-benchmark
+services:
+  postgres:
+    image: postgres:16.8
+    cpus: ${DB_CPUS:-4}
+    mem_limit: ${DB_MEMORY:-4g}
+    environment:
+      POSTGRES_USER: aml
+      POSTGRES_DB: aml
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    ports:
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ${PREPARED_DIR:-./prepared}:/aml-data:ro
+      - ./postgres.sql:/aml-postgres.sql:ro
+      - ./postgres-index.sql:/aml-index.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "aml", "-d", "aml"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  neo4j:
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#*/}\" 'RETURN 1' >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    image: neo4j:5.26.5-community
+    cpus: ${DB_CPUS:-4}
+    mem_limit: ${DB_MEMORY:-4g}
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 1G
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo_data:/data
+      - ${PREPARED_DIR:-./prepared}:/aml-data:ro
+volumes:
+  pg_data:
+  neo_data:

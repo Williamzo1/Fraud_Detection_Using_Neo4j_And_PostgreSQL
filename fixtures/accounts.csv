@@ -1,0 +1,6 @@
+bank_name,bank_id,account_id,entity_id,entity_name
+Alpha,01,001,0001,A
+Beta,02,001,0002,B
+Alpha,01,003,0003,C
+Beta,02,004,0004,D
+Alpha,01,001,0001,A

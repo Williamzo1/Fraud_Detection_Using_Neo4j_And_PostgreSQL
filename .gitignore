@@ -1,6 +1,7 @@
-# Local IBM AML datasets and generated CSV files.
 HI-Small*.csv
-
-# Python bytecode.
+.env
+prepared*/
+results/
+.venv/
 __pycache__/
 *.py[cod]
