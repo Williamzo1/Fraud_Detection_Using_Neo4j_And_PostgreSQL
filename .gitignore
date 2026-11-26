@@ -1,0 +1,6 @@
+# Local IBM AML datasets and generated CSV files.
+HI-Small*.csv
+
+# Python bytecode.
+__pycache__/
+*.py[cod]
