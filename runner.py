@@ -268,7 +268,7 @@ def main():
     parser.add_argument("--cases", type=Path, default=ROOT/"cases.json")
     parser.add_argument("--timeout-ms", type=int, default=120000)
     parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--repetitions", type=int, default=15)
+    parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     source, out = paths()
