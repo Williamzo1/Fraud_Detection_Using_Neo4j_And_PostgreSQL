@@ -1,7 +1,10 @@
 // Filter each relationship independently, before joining the cycle branches.
 // The smallest account key removes rotations but preserves direction and
 // every combination of parallel transfers.
-MATCH (a:Account)-[x:TRANSFER]->(b:Account)-[y:TRANSFER]->(c:Account)-[z:TRANSFER]->(a)
+// Omit redundant :Account labels (every node in the graph is an Account,
+// matching Q3.sql scanning transfers without joining accounts).
+MATCH (a)-[x:TRANSFER]->(b)-[y:TRANSFER]->(c)-[z:TRANSFER]->(a)
+USING INDEX x:TRANSFER(ts)
 WHERE x.ts >= localdatetime($t0)
   AND x.ts < localdatetime($t1)
   AND y.ts >= localdatetime($t0)

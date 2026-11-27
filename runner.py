@@ -7,7 +7,6 @@ import math
 import random
 import tempfile
 import sqlite3
-import time
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -150,7 +149,7 @@ def benchmark(db, prepared, cases, out, args):
             raise ValueError(f"Verify {cid} on both databases before benchmarking")
     rng = random.Random(args.seed)
     save_json(out / f"settings-{db.system}.json", dict(warmup=args.warmup, repetitions=args.repetitions,
-              seed=args.seed, timeout_ms=args.timeout_ms, resolved_seeds={
+              seed=args.seed, timeout_ms=args.timeout_ms, timing_scope="server", resolved_seeds={
                   cid:p["seed"] for cid, (_,p) in prepared.items() if "seed" in p}))
     order = 0
     try:
@@ -161,18 +160,22 @@ def benchmark(db, prepared, cases, out, args):
                 for cid in ids:
                     stmt, params = prepared[cid]
                     status, count, error = "ok", 0, ""
-                    start = time.perf_counter_ns()
+                    server_ms = plan_or_avail_ms = exec_or_consumed_ms = ""
                     try:
-                        for _ in db.rows(stmt, params):
-                            count += 1
+                        metrics = db.measure_server(stmt, params)
+                        server_ms = metrics["server_ms"]
+                        plan_or_avail_ms = metrics["plan_or_avail_ms"]
+                        exec_or_consumed_ms = metrics["exec_or_consumed_ms"]
+                        count = metrics["row_count"]
                     except Exception as exc:
                         error = str(exc)
                         code = str(getattr(exc, "code", "") or getattr(exc, "sqlstate", ""))
                         status = "timeout" if code == "57014" or "timedout" in code.lower() or "timeout" in error.lower() else "error"
-                    elapsed = (time.perf_counter_ns()-start)/1e6
                     order += 1
                     append_csv(runfile, dict(experiment_id=out.name, dbms=db.system, query_id=cases[cid]["query_id"],
-                          case_id=cid, phase=phase, repetition=rep, latency_ms=elapsed, row_count=count,
+                          case_id=cid, phase=phase, repetition=rep, latency_ms=server_ms, row_count=count,
+                          timing_scope="server", server_plan_or_avail_ms=plan_or_avail_ms,
+                          server_exec_or_consumed_ms=exec_or_consumed_ms,
                           status=status, timeout_ms=args.timeout_ms, error_message=error, run_order=order))
                     if status != "ok":
                         system = db.system
@@ -202,6 +205,27 @@ def percentile(sorted_values, fraction):
     return sorted_values[lo] + (pos-lo)*(sorted_values[hi]-sorted_values[lo])
 
 
+def _neo4j_db_hits(node):
+    return int(node.get("dbHits") or 0) + sum(_neo4j_db_hits(c) for c in node.get("children", []))
+
+
+def _plan_metrics(out, system, cid):
+    metrics = dict(plan_db_hits="", plan_memory_bytes="", plan_temp_written_blocks="")
+    path = out / "plans" / system / (cid + ".json")
+    if not path.is_file():
+        return metrics
+    plan = read_json(path)
+    if system == "postgres" and isinstance(plan, list) and plan:
+        root = plan[0].get("Plan", {})
+        metrics["plan_temp_written_blocks"] = int(root.get("Temp Written Blocks") or 0)
+    elif system == "neo4j" and isinstance(plan, dict):
+        metrics["plan_db_hits"] = _neo4j_db_hits(plan)
+        global_mem = plan.get("args", {}).get("GlobalMemory")
+        if global_mem is not None:
+            metrics["plan_memory_bytes"] = int(global_mem)
+    return metrics
+
+
 def summarize(out):
     config = read_json(out / "experiment.json")["config"]
     with (out / "runs.csv").open(newline="", encoding="utf-8") as stream:
@@ -214,11 +238,14 @@ def summarize(out):
         for system in SYSTEMS:
             group = [r for r in runs if r["case_id"] == cid and r["dbms"] == system]
             values = sorted(float(r["latency_ms"]) for r in group if r["status"] == "ok")
+            scopes = sorted({r.get("timing_scope") or "client_legacy" for r in group})
+            scope = ",".join(scopes) if scopes else ""
             row = dict(experiment_id=out.name, dbms=system, query_id=c["query_id"], case_id=cid,
                        p50_ms=percentile(values,.5), p95_ms=percentile(values,.95),
                        iqr_ms=percentile(values,.75)-percentile(values,.25) if values else None,
                        measured=len(group), completed=len(values), timeouts=sum(r["status"]=="timeout" for r in group),
-                       errors=sum(r["status"]=="error" for r in group), verification=status)
+                       errors=sum(r["status"]=="error" for r in group), verification=status,
+                       timing_scope=scope, **_plan_metrics(out, system, cid))
             pair.append(row)
         a,b = (r["p50_ms"] for r in pair)
         for row in pair:
@@ -241,7 +268,7 @@ def main():
     parser.add_argument("--cases", type=Path, default=ROOT/"cases.json")
     parser.add_argument("--timeout-ms", type=int, default=120000)
     parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--repetitions", type=int, default=30)
+    parser.add_argument("--repetitions", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     source, out = paths()

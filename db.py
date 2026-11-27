@@ -97,6 +97,34 @@ class Database:
             yield from result
             result.consume()
 
+    def measure_server(self, statement, params=None):
+        """Execute statement and return server-side planning/execution timing."""
+        if self.pg:
+            doc = self.pg.execute(
+                "EXPLAIN (ANALYZE, TIMING OFF, SUMMARY ON, FORMAT JSON)\n" + statement,
+                params or {},
+            ).fetchone()[0][0]
+            plan_ms = float(doc.get("Planning Time", 0.0))
+            exec_ms = float(doc.get("Execution Time", 0.0))
+            rows = int(doc.get("Plan", {}).get("Actual Rows", 0))
+            return dict(
+                server_ms=plan_ms + exec_ms,
+                plan_or_avail_ms=plan_ms,
+                exec_or_consumed_ms=exec_ms,
+                row_count=rows,
+            )
+        result = self.session.run(Query(statement, timeout=self.timeout / 1000), params or {})
+        count = sum(1 for _ in result)
+        summary = result.consume()
+        avail_ms = float(summary.result_available_after or 0.0)
+        consumed_ms = float(summary.result_consumed_after or 0.0)
+        return dict(
+            server_ms=avail_ms + consumed_ms,
+            plan_or_avail_ms=avail_ms,
+            exec_or_consumed_ms=consumed_ms,
+            row_count=count,
+        )
+
     def close(self):
         if self.session:
             self.session.close()

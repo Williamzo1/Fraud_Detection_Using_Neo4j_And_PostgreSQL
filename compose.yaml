@@ -2,7 +2,7 @@ name: aml-benchmark
 services:
   postgres:
     image: postgres:16.8
-    cpus: ${DB_CPUS:-4}
+    cpus: ${DB_CPUS:-1}
     mem_limit: ${DB_MEMORY:-4g}
     environment:
       POSTGRES_USER: aml
@@ -27,13 +27,13 @@ services:
       timeout: 10s
       retries: 60
     image: neo4j:5.26.5-community
-    cpus: ${DB_CPUS:-4}
+    cpus: ${DB_CPUS:-1}
     mem_limit: ${DB_MEMORY:-4g}
     environment:
       NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
-      NEO4J_server_memory_heap_initial__size: 1G
-      NEO4J_server_memory_heap_max__size: 1G
-      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP:-1G}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-1800M}
     ports:
       - "127.0.0.1:${HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${BOLT_PORT:-7687}:7687"
